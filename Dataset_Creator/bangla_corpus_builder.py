@@ -29,6 +29,19 @@ POPPLER_PATH = r"C:\poppler-25.12.0\Library\bin"
 # Bangla Text Utilities
 # =========================
 
+def load_processed_files(path):
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def save_processed_files(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+
 def contains_bangla(text):
     return any(0x0980 <= ord(c) <= 0x09FF for c in text)
 
@@ -123,22 +136,22 @@ def is_valid_bangla_sentence(s: str) -> bool:
     if len(words) < 5:
         return False
 
-    # 1️⃣ Too many 1-letter words → OCR junk
+    # Too many 1-letter words → OCR junk
     short_words = sum(1 for w in words if len(w) <= 2)
     if short_words / len(words) > 0.6:
         return False
 
-    # 2️⃣ Punctuation heavy
+    # Punctuation heavy
     punct = sum(1 for c in s if c in '.,:;!?-—()[]\'"')
     if punct / max(len(s),1) > 0.20:
         return False
 
-    # 3️⃣ Must contain Bengali vowel matras or vowels
+    # Must contain Bengali vowel matras or vowels
     vowels = "ািীুূেৈোৌঅআইঈউঊএঐওঔ"
     if sum(c in vowels for c in s) < 3:
         return False
 
-    # 4️⃣ Repeated same char patterns (OCR artifacts)
+    # Repeated same char patterns (OCR artifacts)
     if re.search(r'(.)\1\1\1', s):
         return False
 
@@ -180,6 +193,25 @@ def split_sentences(text):
 # =========================
 # OCR Extraction (Memory Safe)
 # =========================
+
+def extract_text_pdfplumber(pdf_path):
+
+    text = ""
+
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    text += t + "\n"
+
+    except Exception as e:
+        print("pdfplumber error:", e)
+
+    return clean_text(text)
+
+
+
 
 def extract_ocr_text(pdf_path):
     text = ""
@@ -229,7 +261,12 @@ class BanglaCorpusBuilder:
     def __init__(self, output_dir="bangla_corpus"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+
         self.documents = []
+
+        self.processed_file_path = self.output_dir / "processed_files.json"
+        self.processed_files = load_processed_files(self.processed_file_path)
+
 
     def process_folder(self, root_folder):
         pdf_files = list(Path(root_folder).rglob("*.pdf"))
@@ -239,11 +276,21 @@ class BanglaCorpusBuilder:
             return
 
         for pdf in tqdm(pdf_files, desc="Processing PDFs"):
+            pdf_name = pdf.name
+
+            if pdf_name in self.processed_files:
+                tqdm.write(f"Skipping already processed: {pdf_name}")
+                continue
+
             author_name = pdf.parent.name.lower()
             title_name = pdf.stem.lower()
 
             tqdm.write(f"OCR used for: {pdf.name}")
-            text = extract_ocr_text(pdf)
+            text = extract_text_pdfplumber(pdf)
+
+            if len(text) < 200:
+                tqdm.write("Switching to OCR...")
+                text = extract_ocr_text(pdf)
 
             tqdm.write(f"{pdf.name} -> extracted length: {len(text)}")
 
@@ -256,10 +303,12 @@ class BanglaCorpusBuilder:
             doc = {
                 "author": author_name,
                 "title": title_name,
-                "sentences": sentences[:500]
+                "sentences": sentences[:1000]
             }
 
             self.documents.append(doc)
+            self.processed_files[pdf_name] = True
+            save_processed_files(self.processed_file_path, self.processed_files)
 
         print(f"\nTotal documents processed: {len(self.documents)}")
 
@@ -281,8 +330,14 @@ class BanglaCorpusBuilder:
 
         df_sents = pd.DataFrame(sentence_rows)
 
+        csv_path = self.output_dir / "sentences.csv"
+
+        if csv_path.exists():
+            old_df = pd.read_csv(csv_path)
+            df_sents = pd.concat([old_df, df_sents], ignore_index=True)
+
         df_sents.to_csv(
-            self.output_dir / "sentences.csv",
+            csv_path,
             index=False,
             encoding="utf-8-sig"
         )
