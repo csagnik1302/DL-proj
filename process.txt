@@ -3,5 +3,7 @@ Then create vocabulary from tokenized reprsentations. (threshold count>5)
 Create encoded rep of tokenized representations in setp 1 using step 2
 Add padding for tensorification
 tensorufy the encoded data
+Create embeddings of the encoded data
+Perform mini-batch gru encoder forward pass
 
 input data is ready
