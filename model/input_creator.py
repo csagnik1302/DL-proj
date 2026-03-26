@@ -31,7 +31,4 @@ def final_input(tokens3):
     return torch.tensor(out)
 
 
-print(final_input(tokens))
-
-
 
