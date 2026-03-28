@@ -7,3 +7,243 @@ Create embeddings of the encoded data
 Perform mini-batch gru encoder forward pass
 
 input data is ready
+
+Use adam opotimizer for gru training
+Compute loss of gru (try to minimize it)
+
+APPLY GRL in between to remove style features from gru hidden representations
+
+Use adam optimizer for discriminator training
+Compte loss of optimizer (try to maximize it)
+
+
+first discriminator gradients is updated based on a normla (non-grl) forward pass, whle encoder gradients are kept fixed, so only discriminator parameters learns from this. 
+TO prevent parameter updation we have used seperate optimizers and used detach() in gru putput to detch it frm currnet device and this prevet gradient generation of it and 
+subsequent gru outputs    (λ controls how aggressively encoder fights the discriminator)
+
+we do the same for discriminator using the freeze and unfreeze function that sets requires_grad toggling so that we can ensure when are grads being involved in backprop (actually optimizer is anyways ensuring its not gonna be invollved, but just a precautionary measure)
+
+This is a *very sharp* question — and you’re right **in principle**. Let’s separate **theory vs practice** clearly.
+
+---
+
+# 🎯 Your statement
+
+> “Encoder gradients are not being updated, so why is it bad?”
+
+👉 **Theoretically: you are correct**
+
+```text
+If you don’t call optimizer_en.step(), encoder parameters will NOT update.
+```
+
+So:
+
+```text
+Computing gradients alone ≠ updating weights
+```
+
+---
+
+# 🧠 Then why do people still avoid it?
+
+Because of **practical side-effects**, not correctness.
+
+---
+
+# ⚠️ 1. Gradient accumulation (REAL issue)
+
+PyTorch does:
+
+```text
+grad = grad + new_grad
+```
+
+So if you compute encoder gradients in Phase 1:
+
+```text
+Phase 1 → encoder grads exist (but unused)
+Phase 2 → new grads added on top
+```
+
+👉 Now encoder gradients are:
+
+```text
+mixture of wrong + correct signal
+```
+
+---
+
+### 🔥 This is the actual danger
+
+```text
+Phase 1 gradients → push encoder to HELP discriminator ❌  
+Phase 2 gradients → push encoder to CONFUSE discriminator ✅
+```
+
+👉 You accidentally mix:
+
+```text
+opposing objectives
+```
+
+---
+
+# ⚠️ 2. Memory + compute waste
+
+Without `.detach()`:
+
+* full computation graph stored
+* gradients computed for GRU unnecessarily
+
+👉 Slower + more GPU memory
+
+---
+
+# ⚠️ 3. Debugging nightmare
+
+If later you:
+
+* inspect `.grad`
+* clip gradients
+* log norms
+
+👉 You’ll see **incorrect values**
+
+---
+
+# ⚠️ 4. Subtle bugs if code evolves
+
+Today:
+
+```text
+you don’t step encoder in Phase 1
+```
+
+Tomorrow:
+
+```text
+you add another optimizer / scheduler / mixed precision
+```
+
+👉 Suddenly:
+
+```text
+encoder gets updated unintentionally
+```
+
+---
+
+# 🧠 So the real answer
+
+| Aspect                       | Is it wrong?        |
+| ---------------------------- | ------------------- |
+| Mathematical correctness     | ❌ No                |
+| Practical training stability | 🔴 Yes, problematic |
+
+---
+
+# ⚡ Clean conclusion
+
+```text
+Computing extra gradients is not WRONG,
+but it is UNSAFE and UNNECESSARY.
+```
+
+---
+
+# 🔥 Best practice (why detach exists)
+
+`.detach()` ensures:
+
+```text
+Phase 1 → encoder is completely invisible to backward pass
+```
+
+So:
+
+* no accidental gradients
+* no mixing of objectives
+* clean separation of roles
+
+---
+
+# 🎯 Final intuition
+
+Think:
+
+### Without detach:
+
+```text
+Encoder hears BOTH:
+    “help discriminator”
+    “confuse discriminator”
+```
+
+### With detach:
+
+```text
+Encoder hears ONLY:
+    “confuse discriminator”
+```
+
+---
+
+# ⚡ One-line takeaway
+
+```text
+.detach() is not about correctness,
+it’s about protecting the training signal.
+```
+
+---
+
+If you want next, I can show:
+
+👉 a **numerical toy example where gradients cancel out (very insightful)**
+👉 or how to **verify this by printing grad norms in your code**
+
+
+
+then grl is applied in a 2nd pass and here encoder gradients is updated as discriminator grads are fixed is updated as encoder learns what it needs to do to ensure that discriminator cannot classify correctly (thus the grl application)
+
+
+
+Observations:
+
+Discriminator at 2 layer.
+at lambda =0.1
+lr for both = 0.0005
+
+loss is same across both to 2 decimal places. no expected patter. Phase 1 loss go down, phase 2 go up, and have some difference in losses
+
+phase 1 individual accuracy when phase 2 is off (basic forward prop) is achieveing accuracy of 84%
+
+Thus encoder is dominating over decoder
+
+fix:
+
+
+
+#OUR TARGET ACCURACY FOR DISCRIMINATOR (2=% basically 1/5 (due to 5 classes) (totally rnadom, no pattern exists the classifier is picking randomaly))
+
+
+for adversarial setup random guessing indicator -> log(total classes)=1.6
+
+
+
+Tuning lambda wrt accuracy rate so that it goes down to 20% (meaning now discriminator is random guessing as encoder has removed all style authoer features)
+
+
+Turning phase 2 off for just experimenting
+rn reaching 44-50% with phase 2 off, meaning discriminator is itself too weak
+
+adding a layer
+
+now its 74-85%
+
+switching phase 2 back on
+
+at l=0, accuracy is hovering around 53% (meaning now discriminator is too strong)
+
+setting l=0.01

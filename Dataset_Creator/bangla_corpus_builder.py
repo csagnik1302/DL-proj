@@ -12,6 +12,14 @@ from tqdm import tqdm
 
 import pandas as pd
 import unicodedata
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+
+# REGEX PRECOMPILED
+RE_PAGE_NUM = re.compile(r'\n\s*\d+\s*\n')
+RE_NUMBERS = re.compile(r'[\d০-৯]+')
+RE_MULTISPACE = re.compile(r'\s+')
+RE_NON_BANGLA = re.compile(r'[^\u0980-\u09FF\s।?!,;:\-\'\"()]')
 
 
 # =========================
@@ -28,6 +36,36 @@ POPPLER_PATH = r"C:\poppler-25.12.0\Library\bin"
 # =========================
 # Bangla Text Utilities
 # =========================
+
+def process_single_pdf(args):
+    pdf_path, processed_files = args
+    pdf_name = pdf_path.name
+
+    if processed_files.get(pdf_name, False) is True:
+        return None, pdf_name, "skipped"
+
+    author_name = pdf_path.parent.name.lower()
+    title_name = pdf_path.stem.lower()
+
+    text = extract_text_pdfplumber(pdf_path)
+
+    # retain your fallback logic EXACTLY
+    if len(text) < 200 or not contains_bangla(text):
+        text = extract_ocr_text(pdf_path)
+
+    if len(text) < 300:
+        return None, pdf_name, "too_short"
+
+    sentences = split_sentences(text)
+
+    doc = {
+        "author": author_name,
+        "title": title_name,
+        "sentences": sentences[:1000]
+    }
+
+    return doc, pdf_name, "ok"
+
 
 def load_processed_files(path):
     if path.exists():
@@ -91,20 +129,11 @@ def clean_text(text):
     text = text.replace('\u200c', '')
     text = text.replace('\u200d', '')
 
-    # Remove page-number-only lines
-    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)
-
-    # Remove isolated numbers surrounded by spaces
-    text = re.sub(r'[\d০-৯]+', ' ', text)
-
-    # Remove excessive whitespace
-    text = re.sub(r'\s+', ' ', text)
-
-    # Keep Bangla + punctuation only
-    text = re.sub(r'[^\u0980-\u09FF\s।?!,;:\-\'\"()]', ' ', text)
-
-    # Final whitespace cleanup
-    text = re.sub(r'\s+', ' ', text)
+    text = RE_PAGE_NUM.sub('\n', text)
+    text = RE_NUMBERS.sub(' ', text)
+    text = RE_MULTISPACE.sub(' ', text)
+    text = RE_NON_BANGLA.sub(' ', text)
+    text = RE_MULTISPACE.sub(' ', text)
 
     return text.strip()
 
@@ -221,30 +250,28 @@ def extract_ocr_text(pdf_path):
         info = pdfinfo_from_path(pdf_path, poppler_path=POPPLER_PATH)
         total_pages = info["Pages"]
 
-        for page_number in tqdm(
-            range(1, total_pages + 1),
-            desc=f"OCR pages: {Path(pdf_path).name}",
-            leave=False
-        ):
+        batch_size = 5  # 🔥 tune this (3–10 depending on RAM)
+
+        for start in range(1, total_pages + 1, batch_size):
+            end = min(start + batch_size - 1, total_pages)
+
             images = convert_from_path(
                 pdf_path,
                 dpi=300,
-                first_page=page_number,
-                last_page=page_number,
+                first_page=start,
+                last_page=end,
                 poppler_path=POPPLER_PATH
             )
 
-            img = images[0]
+            for img in images:
+                text += pytesseract.image_to_string(
+                    img,
+                    lang="ben",
+                    config="--oem 3 --psm 6"
+                )
+                img.close()
 
-            text += pytesseract.image_to_string(
-                img,
-                lang="ben",
-                config="--oem 3 --psm 6"
-            )
-
-            img.close()
-            del img
-            del images
+            del images  # 🔥 force memory release
 
     except Exception as e:
         tqdm.write(f"OCR error in {pdf_path}: {e}")
@@ -271,46 +298,42 @@ class BanglaCorpusBuilder:
     def process_folder(self, root_folder):
         pdf_files = list(Path(root_folder).rglob("*.pdf"))
 
+        # Initialize unseen files as False
+        for pdf in pdf_files:
+            if pdf.name not in self.processed_files:
+                self.processed_files[pdf.name] = False
+
         if not pdf_files:
             print("No PDF files found.")
             return
 
-        for pdf in tqdm(pdf_files, desc="Processing PDFs"):
-            pdf_name = pdf.name
+        with ProcessPoolExecutor(max_workers=2) as executor:
 
-            if pdf_name in self.processed_files:
-                tqdm.write(f"Skipping already processed: {pdf_name}")
-                continue
+            futures = [
+                executor.submit(process_single_pdf, (pdf, self.processed_files))
+                for pdf in pdf_files
+            ]
 
-            author_name = pdf.parent.name.lower()
-            title_name = pdf.stem.lower()
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing PDFs"):
+                doc, pdf_name, status = future.result()
 
-            tqdm.write(f"OCR used for: {pdf.name}")
-            text = extract_text_pdfplumber(pdf)
+                if status == "ok":
+                    print(f"PROCESSED: {pdf_name}")   # 👈 ADD THIS LINE
+                    self.documents.append(doc)
+                    self.processed_files[pdf_name] = True
 
-            if len(text) < 200:
-                tqdm.write("Switching to OCR...")
-                text = extract_ocr_text(pdf)
+                elif status == "skipped":
+                    tqdm.write(f"Skipping already processed: {pdf_name}")
 
-            tqdm.write(f"{pdf.name} -> extracted length: {len(text)}")
+                elif status == "too_short":
+                    tqdm.write(f"Skipped {pdf_name} (too short)")
+                    self.processed_files[pdf_name] = True  # mark as done to avoid retry
 
-            if len(text) < 300:
-                tqdm.write(f"Skipped {pdf.name} (too short)")
-                continue
-
-            sentences = split_sentences(text)
-
-            doc = {
-                "author": author_name,
-                "title": title_name,
-                "sentences": sentences[:1000]
-            }
-
-            self.documents.append(doc)
-            self.processed_files[pdf_name] = True
-            save_processed_files(self.processed_file_path, self.processed_files)
+        # ✅ ADD THIS BLOCK HERE (after executor finishes)
+        save_processed_files(self.processed_file_path, self.processed_files)
 
         print(f"\nTotal documents processed: {len(self.documents)}")
+
 
     def build(self):
 
@@ -360,6 +383,6 @@ if __name__ == "__main__":
 
     input_folder = sys.argv[1]
 
-    builder = BanglaCorpusBuilder()
+    builder = BanglaCorpusBuilder(output_dir=r"C:\project\DL project\Dataset_Creator\bangla_corpus")
     builder.process_folder(input_folder)
     builder.build()

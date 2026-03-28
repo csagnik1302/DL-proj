@@ -32,14 +32,7 @@ def vocab_creator(data2):
     return vocab(tokenize(data2))
 
 
-def encoded_tokens(tokens1):
-    enc=[]
-    for i in tokens1:
-        temp=[]
-        for j in i:
-            temp.append(vocab.get(j,vocab["<unk>"]))
-        enc.append(temp)
-    return enc
+
 
   
     
