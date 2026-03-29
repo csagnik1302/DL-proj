@@ -65,7 +65,9 @@ batch_count=0
 Accuracy_epoch=0
 Accuracy_all=[]
 
-for epoch in range(100):
+max_epoch=130
+
+for epoch in range(max_epoch):
 
     for i in loader:
         
@@ -120,7 +122,7 @@ for epoch in range(100):
     # print(f"EPOCH {epoch}: PHASE-1: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%")
     # print(f"EPOCH {epoch}: CLASSIFICATION: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%")
 
-x=list(range(1,101))
+x=list(range(1,max_epoch+1))
 
 plt.plot(x,loss_1_full)
 plt.plot(x,loss_2_full)
