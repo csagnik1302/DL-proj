@@ -50,10 +50,13 @@ def final_author_input(data):
     return torch.tensor(enc)
     
 
+max_afterpad_size=final_input(dataset["text"]).size()[-1]
+torch.save(max_afterpad_size,"max_afterpad_size.pth")
 
 
 if __name__=="__main__":       #just for testing
-    print(final_author_input(dataset["author"]).shape)
+    # print(tokens[0])
+    print(final_input(dataset["text"]).size()[-1])
 
 
 

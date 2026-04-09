@@ -21,6 +21,8 @@ dataset = pd.read_csv(r"C:\project\DL project\Dataset_Creator\bangla_corpus\sent
 tokens=vocab_creator.tokenize(dataset['text'])
 vocab=vocab_creator.vocab_creator(dataset['text'])
 
+torch.save(vocab,"vocab.pth")  # Saves this vocab so that we can use it later during inference (Done so that any issues with vocab mismatch can be prevented)
+
 enc_tokens=input_creator.final_input(tokens).long()                      #embed wotks best with long
 enc_author_tokens=input_creator.final_author_input(dataset["author"]).long()     
 # author name needs to be encoded as long (int64) as cross entropy loss works with long data in pytorch
@@ -31,6 +33,9 @@ enc_author_tokens=input_creator.final_author_input(dataset["author"]).long()
 embed=nn.Embedding(num_embeddings=len(vocab),          #need to tune embedding_dim
                     embedding_dim=128,
                     padding_idx=vocab["<pad>"]).to(device)
+
+# Style Embedding #########
+emb_author=nn.Embedding(5,embedding_dim=128).to(device)       # embedding_dim can be tuned
                         
 
 
@@ -70,17 +75,23 @@ loader=DataLoader(mini_data1,batch_size=64,shuffle=True)           # Tune batch 
 
 
 
-# GRU Architecture Input
+# Encoder GRU Architecture Input
 gru_input=embed.embedding_dim
-
 # GRU Architecture
 gru=nn.GRU(input_size=gru_input,hidden_size=130,batch_first=True,bidirectional=True).to(device)
+
+# Decoder GRU Architecture Input
+decoder_gru_input=embed.embedding_dim+gru.hidden_size*2+emb_author.embedding_dim
+# GRU Architecture
+decoder_gru=nn.GRU(input_size=decoder_gru_input,hidden_size=130,batch_first=True).to(device)
+
+
 
 gru_output=260
 class_count=5
 
 
-# DISCRIMINATOR Input:
+################ DISCRIMINATOR Input: #############################
 
 # CAN ALSO TUNE NUMBER OF LAYERS IN DISCRIMINATOR (CURRENTLY ITS 2)
 
@@ -116,6 +127,15 @@ l3_linear=nn.Linear(in_features=l3_input,out_features=l3_output,bias=True).to(de
 # Cross-Entropy Loss:
 cross_loss=nn.CrossEntropyLoss().to(device)
 
+###############
+
+################ Optimizer Generation input #####################################
+
+decoder_linear_input=decoder_gru.hidden_size
+decoder_linear_output=len(vocab)
+
+decoder_linear=nn.Linear(decoder_linear_input,decoder_linear_output,bias=True).to(device)
+
 
 # Define Optimizer (for optimization of parameter)
 
@@ -123,10 +143,9 @@ cross_loss=nn.CrossEntropyLoss().to(device)
 # Discriminator: Trained to correctly classify, but due to invarient input from gru, gives incorrect one.
 #  2 optimizers are needed to introuce an adversarial training approach, where one looks at other to update (imagine a chess game, one person looks at others moves then thinks, and then plays his move) 
 
-parameters_en=itertools.chain(embed.parameters(),gru.parameters())      # Only updates the gru parameters
+parameters_en=itertools.chain(embed.parameters(),gru.parameters(),decoder_gru.parameters(),decoder_linear.parameters())          # Only updates the gru and decoder gru and generator nn parameters
 parameters_dis=itertools.chain(l1_linear.parameters(),l2_linear.parameters(),l3_linear.parameters())     # Only updates the discriminator parameters  # ReLU has no parameters
 
-parameters=itertools.chain(embed.parameters(),gru.parameters(),l1_linear.parameters(),l2_linear.parameters(),l3_linear.parameters())  # For plain gru + discriminator training (debug purpose) (non-adversarial)
 
 # Used itertools.chain because simple list is only a list of iterables ([ iterator1, iterator2, iterator3 ]). 
 # Each iterbale contains parameter data inside, so its simply a nested iterable of parameters ([ iterator1, iterator2, iterator3 ]) -> ([p1,p2,....],[p3,p4,...],...).
@@ -134,7 +153,6 @@ parameters=itertools.chain(embed.parameters(),gru.parameters(),l1_linear.paramet
 
 optimizer_en=torch.optim.Adam(parameters_en,lr=0.0001)     # Optimizer for Encoder training  # TUNE  LR
 optimizer_dis=torch.optim.Adam(parameters_dis,lr=0.01)     # Optimizer for Discriminator training  # TUNE  LR
-optimizer=torch.optim.Adam(parameters,lr=0.001)  # For plain gru + discriminator training (debug purpose) (non-adversarial) 
 
 # Optimizer in pytorch takes the parameter input of all architectures that you have built and that needs to be updated
 # through this optimizer object we can optimize parameters during backprop now
@@ -159,49 +177,110 @@ def unfreeze_discriminator():
 
 
 
+def decoder_forward(target_tokens, hidden_both, i_auth):
+    
+    # target_tokens: (batch, seq_len)
 
-def Classification_pass(input):
+    batch_size, seq_len = target_tokens.shape
 
-        i_sent=input[0].to(device)                 #Each item inside the loader is a tuple, which looks like (Embedding of a sentence,author of that sentence)
-        i_auth=input[1].to(device) 
+    # ---------- 1. Shift for teacher forcing ----------
+    decoder_input_tokens = target_tokens[:, :-1]
+    decoder_target_tokens = target_tokens[:, 1:]
 
-        embed1=embed(i_sent)
+    # ---------- 2. Word embeddings ----------
+    embedded = embed(decoder_input_tokens)
+    # (batch, seq_len-1, embed_dim)
 
-        #Forward pass (Back later after opposite grads)
-        out,hidden=gru(embed1)
+    # ---------- 3. Style embedding ----------
+    embed_author_vec = emb_author(i_auth)
+    # (batch, style_dim)
 
-        hidden_both=torch.cat((hidden[0],hidden[1]),dim=1)    #(DID THIS SINCE THIS IS WHAT DISCRIMINATOR EXPECTS AS INPUT) concatenates hidden[0], hidden rep when forward reading, and hidden[1], for backward reading, each has dim(2,64,128), here we are concatenating along dim=1(col) so dim= (64,256)
+    # ---------- 4. Expand context ----------
+    context_seq = hidden_both.unsqueeze(1).repeat(1, seq_len-1, 1)
+    # (batch, seq_len-1, 260)
+
+    # ---------- 5. Expand style ----------
+    style_seq = embed_author_vec.unsqueeze(1).repeat(1, seq_len-1, 1)
+    # (batch, seq_len-1, 128)
+
+    # ---------- 6. Concatenate ----------
+    decoder_input = torch.cat((embedded, context_seq, style_seq), dim=2)
+    # (batch, seq_len-1, embed_dim + 260 + 128)
+
+    # ---------- 7. GRU ----------
+    output, hidden = decoder_gru(decoder_input)
+    # output: (batch, seq_len-1, 130)
+
+    # ---------- 8. Project to vocab ----------
+    logits = decoder_linear(output)     # Give logits to show based on previous word recieved through embedded, which word in the vocabulary is the most probably, and thus output it in the generator stage
+    # (batch, seq_len-1, vocab_size)
+
+    # ---------- 9. Flatten for loss ----------
+    logits = logits.contiguous().view(-1, logits.shape[-1])
+    targets = decoder_target_tokens.contiguous().view(-1)
+
+    # ---------- 10. Loss ----------
+    loss = cross_loss(logits, targets)
+
+    return loss
 
 
-        # DISCRIMINATOR ARCHITECTURE:
 
-        # Forward Propagation
+def decoder_generate(hidden_both, i_auth, sos_token, max_len=20):
 
-        # Layer-1 (Linear) (Needed to learn more features) 
-        l1_out=l1_linear(hidden_both)
-        l1_relu_out=l1_relu(l1_out)
-        
-        # Layer-2 (Linear) (Needed to learn more features) 
-        l2_out=l2_linear(l1_relu_out)
-        l2_relu_out=l2_relu(l2_out)
+    batch_size = hidden_both.shape[0]
 
-        # Layer-3 (Linear) (Output Layer) (To produce logits) (Probabilities are explicity produced in nn.crossentropy so we did not put softmax in the output layer, otherwise we would have only done softmax twice which will give wrong result)
-        l3_out=l3_linear(l2_relu_out)
+    # ---------- 1. Style embedding ----------
+    embed_author_vec = emb_author(i_auth)
+    # (batch, style_dim)
 
+    # ---------- 2. Initialize ----------
+    input_token = torch.full((batch_size, 1), sos_token).to(device)
+    generated_tokens = []
 
-        # Cross-Entropy Loss
-        loss=cross_loss(l3_out,i_auth)
+    hidden = None  # decoder initial hidden state
 
-        # Backward Propagation
-        optimizer.zero_grad()            
-        # (Pytorch has a habit of accumulating previously computed gradients. This tackles that problem) 
-        # Sets all previously computed gradients to 0, otherwise gradients of past batch will influence gradient computation of current batch, leading to inaccuracies
+    for _ in range(max_len):
 
-        loss.backward()
+        # ---------- 3. Embed current token ----------
+        embedded = embed(input_token)
+        # (batch, 1, embed_dim)
 
-        optimizer.step()                 # Perform a single optimization step to update parameter.
+        # ---------- 4. Context ----------
+        context = hidden_both.unsqueeze(1)
+        # (batch, 1, 260)
 
-        return l3_out,loss
+        # ---------- 5. Style ----------
+        style = embed_author_vec.unsqueeze(1)
+        # (batch, 1, style_dim)
+
+        # ---------- 6. Concatenate ----------
+        decoder_input = torch.cat((embedded, context, style), dim=2)
+        # (batch, 1, input_dim)
+
+        # ---------- 7. GRU step ----------
+        output, hidden = decoder_gru(decoder_input, hidden)
+        # output: (batch, 1, hidden_dim)
+
+        # ---------- 8. Project ----------
+        logits = decoder_linear(output.squeeze(1))
+        # (batch, vocab_size)
+
+        # ---------- 9. Pick next token ----------
+        next_token = torch.argmax(logits, dim=1, keepdim=True)
+        # (batch, 1)
+
+        generated_tokens.append(next_token)
+
+        # ---------- 10. Next input ----------
+        input_token = next_token
+
+    # ---------- 11. Stack outputs ----------
+    generated_tokens = torch.cat(generated_tokens, dim=1)
+    # (batch, max_len)
+
+    return generated_tokens
+
 
 
 
@@ -273,7 +352,7 @@ def Adversary_Pass2(input,lam):
         out,hidden=gru(embed1)
 
         hidden_both=torch.cat((hidden[0],hidden[1]),dim=1)    #(DID THIS SINCE THIS IS WHAT DISCRIMINATOR EXPECTS AS INPUT) concatenates hidden[0], hidden rep when forward reading, and hidden[1], for backward reading, each has dim(2,64,128), here we are concatenating along dim=1(col) so dim= (64,256)
-
+        hidden_both_decoder=torch.cat((hidden[0],hidden[1]),dim=1)  # To be used as input in decoder, to prevent gradient flipping of hidden representation in the decoder stage
 
 
         # GRADIENT REVERSAL LAYER
@@ -309,13 +388,36 @@ def Adversary_Pass2(input,lam):
         # Cross-Entropy Loss
         loss=cross_loss(l3_out,i_auth)
 
-        # Backward Propagation
+        ################################### Decoder ###########################################
+
+        recon_loss=decoder_forward(i_sent,hidden_both_decoder,i_auth)
+
+        total_loss=recon_loss+loss
+
+
+        ####################### Backward Propagation #####################
         optimizer_en.zero_grad()            
         # (Pytorch has a habit of accumulating previously computed gradients. This tackles that problem) 
         # Sets all previously computed gradients to 0, otherwise gradients of past batch will influence gradient computation of current batch, leading to inaccuracies
 
-        loss.backward()
+        total_loss.backward()
 
         optimizer_en.step()                 # Perform a single optimization step to update encoder parameter.
 
-        return l3_out,loss
+
+        return l3_out,loss,recon_loss,total_loss
+
+
+
+
+########## Saving Trained Parameters ###################
+
+def save_model(path):
+    save_dict = {
+        "embed": embed.state_dict(),
+        "encoder_gru": gru.state_dict(),
+        "decoder_gru": decoder_gru.state_dict(),
+        "decoder_linear": decoder_linear.state_dict(),
+        "emb_author": emb_author.state_dict(),
+    }
+    torch.save(save_dict, path) 
