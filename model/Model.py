@@ -70,9 +70,16 @@ if __name__=="__main__":
     Accuracy_epoch=0
     Accuracy_all=[]
 
-    max_epoch=130
+    max_epoch=700
 
     best_loss=float('inf')
+
+    # Controls the ceiling of the gradient reversal strength.
+    # DANN unscaled reaches ~0.29 at epoch 30/500 — far too aggressive (accuracy crashed).
+    # Scaling by lambda_max keeps adversarial pressure gentle and stable.
+    # Start with 0.05; raise if discriminator accuracy never meaningfully drops after epoch 30.
+    # Lower if accuracy crashes again (drops >5% in a single epoch).
+    lambda_max = 0.0001
 
     for epoch in range(max_epoch):
 
@@ -84,14 +91,15 @@ if __name__=="__main__":
 
             loss_per_batch_1+=loss_1.item()           # Sums up losses for all batches in this epoch
 
-            if epoch<30:                               # 30 cuz triend it out with l=0.0000001*(epoch/26)**2 normally, and it anyuways shows maxima at 30. This allows us to increase max achieved accuracy a little bit
+            if epoch<30:
                 l=0                                    # Allows the encoder to train and understand author style patterns
             else:
-                l=0.0000001*(epoch/26)**2      # Adversarial training, decooder slowly takes over # can be tuned   # so small value because even slight ly large value of lambda (e.g: 0.01 leading to quick convergence and thus this implies that )
-
-            # After 25 epochs, the discriminator accuracy starts decreasing (this controls variance)
-            # 0.00000001 controls maxima of accuracy (less this means more maxima)
-            # Finding perfect tradeoff between this is the gaaaaammmeeeeee
+                # DANN schedule scaled by lambda_max.
+                # Unscaled DANN: 0→~1.0. Multiplying by lambda_max keeps the ceiling at lambda_max.
+                # At epoch 30/200: p=0.15 → raw≈0.46 → l≈0.023 (gentle start)
+                # At epoch 200/200: p=1.0  → raw≈1.0  → l≈0.05  (full ceiling)
+                p = epoch / max_epoch
+                l = lambda_max * ((2 / (1 + math.exp(-10 * p))) - 1)
 
             logits_2,loss_2,recon_loss,total_loss=Adv.Adversary_Pass2(i,l)
 
@@ -134,14 +142,19 @@ if __name__=="__main__":
 
         Accuracy_all.append(Accuracy_epoch)
 
-        # print(f"EPOCH {epoch}: PHASE-1: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%, PHASE-2: Loss: {loss_per_epoch_2}, Decoder Loss: {recon_loss_epoch}")
-        print(f"EPOCH {epoch}: Total Loss: {total_loss_epoch}")
+        print(f"EPOCH {epoch}: PHASE-1: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%, PHASE-2: Loss: {loss_per_epoch_2}, Decoder Loss: {recon_loss_epoch}")
+        # print(f"EPOCH {epoch}: Total Loss: {total_loss_epoch}")
         # print(f"EPOCH {epoch}: PHASE-1: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%")
         # print(f"EPOCH {epoch}: CLASSIFICATION: Loss: {loss_per_epoch_1}, Accuracy: {Accuracy_epoch*100}%")
 
-        if total_loss_epoch<best_loss:
-            best_loss=total_loss_epoch
-            Adv.save_model(r"weights.pth")
+        # Save on reconstruction loss only.
+        # total_loss includes the discriminator's cross-entropy (loss_2), which you *want*
+        # to be HIGH (discriminator confused = good encoder). Minimising total_loss would
+        # checkpoint the model where the discriminator is least confused — the opposite of
+        # what adversarial training is trying to achieve.
+        if recon_loss_epoch<best_loss:
+            best_loss=recon_loss_epoch
+            Adv.save_model(r"weights.pth")          # .pth is an extension that pytorch uses for saving and loading stuff internally
 
 
 
@@ -156,4 +169,3 @@ if __name__=="__main__":
 
     plt.plot(x,total_loss_full)
     plt.show()
-

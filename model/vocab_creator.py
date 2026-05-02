@@ -14,7 +14,8 @@ def vocab(data1):
     vocab = {
     "<pad>": 0,
     "<unk>": 1,
-    "<eos>": 2
+    "<eos>": 2,
+    "<sos>": 3
     }   
 
     count=Counter()

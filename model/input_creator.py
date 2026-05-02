@@ -9,13 +9,14 @@ tokens=vocab_creator.tokenize(dataset["text"])
 
 
 def encoded_tokens(tokens1):
-    enc=[]
+    enc = []
     for i in tokens1:
-        temp=[]
+        temp = [vocab["<sos>"]]   # prepend <sos>
         for j in i:
-            temp.append(vocab.get(j,vocab["<unk>"]))
+            temp.append(vocab.get(j, vocab["<unk>"]))
         enc.append(temp)
     return enc
+
 
 def padding(tokens2):                       #for padding
     tokens23=deepcopy(tokens2)
@@ -49,9 +50,6 @@ def final_author_input(data):
             enc.append(4)
     return torch.tensor(enc)
     
-
-max_afterpad_size=final_input(dataset["text"]).size()[-1]
-torch.save(max_afterpad_size,"max_afterpad_size.pth")
 
 
 if __name__=="__main__":       #just for testing

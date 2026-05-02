@@ -81,9 +81,14 @@ gru_input=embed.embedding_dim
 gru=nn.GRU(input_size=gru_input,hidden_size=130,batch_first=True,bidirectional=True).to(device)
 
 # Decoder GRU Architecture Input
+# word embedding (128) + encoder context (260, from BiGRU) + author style embedding (128) = 516
 decoder_gru_input=embed.embedding_dim+gru.hidden_size*2+emb_author.embedding_dim
-# GRU Architecture
-decoder_gru=nn.GRU(input_size=decoder_gru_input,hidden_size=130,batch_first=True).to(device)
+# Unidirectional GRU — output is hidden_size = 130 per timestep.
+# Unidirectional is correct here: the decoder generates left-to-right one token at a time,
+# so there are no future tokens for a backward pass to read. Bidirectional was causing a
+# train/inference mismatch where the backward direction had real context during teacher forcing
+# but only noise during autoregressive generation.
+decoder_gru=nn.GRU(input_size=decoder_gru_input,hidden_size=130,batch_first=True,bidirectional=False).to(device)
 
 
 
@@ -125,13 +130,13 @@ l3_linear=nn.Linear(in_features=l3_input,out_features=l3_output,bias=True).to(de
 
 
 # Cross-Entropy Loss:
-cross_loss=nn.CrossEntropyLoss().to(device)
+cross_loss=nn.CrossEntropyLoss(ignore_index=vocab["<pad>"]).to(device)
 
 ###############
 
 ################ Optimizer Generation input #####################################
 
-decoder_linear_input=decoder_gru.hidden_size
+decoder_linear_input=decoder_gru.hidden_size      # Unidirectional GRU outputs hidden_size = 130 per timestep
 decoder_linear_output=len(vocab)
 
 decoder_linear=nn.Linear(decoder_linear_input,decoder_linear_output,bias=True).to(device)
@@ -143,7 +148,7 @@ decoder_linear=nn.Linear(decoder_linear_input,decoder_linear_output,bias=True).t
 # Discriminator: Trained to correctly classify, but due to invarient input from gru, gives incorrect one.
 #  2 optimizers are needed to introuce an adversarial training approach, where one looks at other to update (imagine a chess game, one person looks at others moves then thinks, and then plays his move) 
 
-parameters_en=itertools.chain(embed.parameters(),gru.parameters(),decoder_gru.parameters(),decoder_linear.parameters())          # Only updates the gru and decoder gru and generator nn parameters
+parameters_en=itertools.chain(embed.parameters(),gru.parameters(),decoder_gru.parameters(),decoder_linear.parameters(),emb_author.parameters())          # Only updates the gru, decoder gru, generator nn, and author style embedding parameters
 parameters_dis=itertools.chain(l1_linear.parameters(),l2_linear.parameters(),l3_linear.parameters())     # Only updates the discriminator parameters  # ReLU has no parameters
 
 
@@ -152,7 +157,7 @@ parameters_dis=itertools.chain(l1_linear.parameters(),l2_linear.parameters(),l3_
 # Using chaoin converts this nested structure into a combined iterable of parameter upfront ([p1, p2, p3, p4, p5, ...]).
 
 optimizer_en=torch.optim.Adam(parameters_en,lr=0.0001)     # Optimizer for Encoder training  # TUNE  LR
-optimizer_dis=torch.optim.Adam(parameters_dis,lr=0.01)     # Optimizer for Discriminator training  # TUNE  LR
+optimizer_dis=torch.optim.Adam(parameters_dis,lr=0.0001)     # Optimizer for Discriminator training  # TUNE  LR
 
 # Optimizer in pytorch takes the parameter input of all architectures that you have built and that needs to be updated
 # through this optimizer object we can optimize parameters during backprop now
@@ -207,12 +212,12 @@ def decoder_forward(target_tokens, hidden_both, i_auth):
     decoder_input = torch.cat((embedded, context_seq, style_seq), dim=2)
     # (batch, seq_len-1, embed_dim + 260 + 128)
 
-    # ---------- 7. GRU ----------
+    # ---------- 7. Unidirectional GRU ----------
     output, hidden = decoder_gru(decoder_input)
-    # output: (batch, seq_len-1, 130)
+    # output: (batch, seq_len-1, 130)  — single forward direction
 
     # ---------- 8. Project to vocab ----------
-    logits = decoder_linear(output)     # Give logits to show based on previous word recieved through embedded, which word in the vocabulary is the most probably, and thus output it in the generator stage
+    logits = decoder_linear(output)
     # (batch, seq_len-1, vocab_size)
 
     # ---------- 9. Flatten for loss ----------
@@ -238,7 +243,8 @@ def decoder_generate(hidden_both, i_auth, sos_token, max_len=20):
     input_token = torch.full((batch_size, 1), sos_token).to(device)
     generated_tokens = []
 
-    hidden = None  # decoder initial hidden state
+    # Unidirectional GRU hidden state shape: (num_layers, batch, hidden_size) = (1, batch, 130)
+    hidden = None
 
     for _ in range(max_len):
 
@@ -258,11 +264,11 @@ def decoder_generate(hidden_both, i_auth, sos_token, max_len=20):
         decoder_input = torch.cat((embedded, context, style), dim=2)
         # (batch, 1, input_dim)
 
-        # ---------- 7. GRU step ----------
+        # ---------- 7. Unidirectional GRU step ----------
         output, hidden = decoder_gru(decoder_input, hidden)
-        # output: (batch, 1, hidden_dim)
+        # output: (batch, 1, 130)  — single forward direction, no slicing needed
 
-        # ---------- 8. Project ----------
+        # ---------- 8. Project to vocab ----------
         logits = decoder_linear(output.squeeze(1))
         # (batch, vocab_size)
 
@@ -420,4 +426,4 @@ def save_model(path):
         "decoder_linear": decoder_linear.state_dict(),
         "emb_author": emb_author.state_dict(),
     }
-    torch.save(save_dict, path) 
+    torch.save(save_dict, path)
