@@ -156,8 +156,8 @@ parameters_dis=itertools.chain(l1_linear.parameters(),l2_linear.parameters(),l3_
 # Each iterbale contains parameter data inside, so its simply a nested iterable of parameters ([ iterator1, iterator2, iterator3 ]) -> ([p1,p2,....],[p3,p4,...],...).
 # Using chaoin converts this nested structure into a combined iterable of parameter upfront ([p1, p2, p3, p4, p5, ...]).
 
-optimizer_en=torch.optim.Adam(parameters_en,lr=0.0001)     # Optimizer for Encoder training  # TUNE  LR
-optimizer_dis=torch.optim.Adam(parameters_dis,lr=0.0001)     # Optimizer for Discriminator training  # TUNE  LR
+optimizer_en=torch.optim.Adam(parameters_en,lr=0.005)     # Optimizer for Encoder training  # TUNE  LR
+optimizer_dis=torch.optim.Adam(parameters_dis,lr=0.01)     # Optimizer for Discriminator training  # TUNE  LR
 
 # Optimizer in pytorch takes the parameter input of all architectures that you have built and that needs to be updated
 # through this optimizer object we can optimize parameters during backprop now
@@ -407,6 +407,7 @@ def Adversary_Pass2(input,lam):
         # Sets all previously computed gradients to 0, otherwise gradients of past batch will influence gradient computation of current batch, leading to inaccuracies
 
         total_loss.backward()
+
 
         optimizer_en.step()                 # Perform a single optimization step to update encoder parameter.
 

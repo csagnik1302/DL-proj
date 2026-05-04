@@ -13,7 +13,7 @@ def encoded_tokens(tokens1):
     for i in tokens1:
         temp = [vocab["<sos>"]]   # prepend <sos>
         for j in i:
-            temp.append(vocab.get(j, vocab["<unk>"]))
+            temp.append(vocab.get(j, vocab["<unk>"]))    # .get() gives the value allocated to the input key as output, with if it does not exist a failsafe output sa well, preventing errors
         enc.append(temp)
     return enc
 

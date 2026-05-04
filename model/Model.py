@@ -70,7 +70,7 @@ if __name__=="__main__":
     Accuracy_epoch=0
     Accuracy_all=[]
 
-    max_epoch=700
+    max_epoch=300
 
     best_loss=float('inf')
 
@@ -79,7 +79,7 @@ if __name__=="__main__":
     # Scaling by lambda_max keeps adversarial pressure gentle and stable.
     # Start with 0.05; raise if discriminator accuracy never meaningfully drops after epoch 30.
     # Lower if accuracy crashes again (drops >5% in a single epoch).
-    lambda_max = 0.0001
+    k = 0.001
 
     for epoch in range(max_epoch):
 
@@ -91,15 +91,18 @@ if __name__=="__main__":
 
             loss_per_batch_1+=loss_1.item()           # Sums up losses for all batches in this epoch
 
-            if epoch<30:
-                l=0                                    # Allows the encoder to train and understand author style patterns
-            else:
-                # DANN schedule scaled by lambda_max.
-                # Unscaled DANN: 0→~1.0. Multiplying by lambda_max keeps the ceiling at lambda_max.
-                # At epoch 30/200: p=0.15 → raw≈0.46 → l≈0.023 (gentle start)
-                # At epoch 200/200: p=1.0  → raw≈1.0  → l≈0.05  (full ceiling)
-                p = epoch / max_epoch
-                l = lambda_max * ((2 / (1 + math.exp(-10 * p))) - 1)
+            # if epoch<30:
+            #     l=0                                    # Allows the encoder to train and understand author style patterns
+            # else:
+            #     # DANN schedule scaled by lambda_max.
+            #     # Unscaled DANN: 0→~1.0. Multiplying by lambda_max keeps the ceiling at lambda_max.
+            #     # At epoch 30/200: p=0.15 → raw≈0.46 → l≈0.023 (gentle start)
+            #     # At epoch 200/200: p=1.0  → raw≈1.0  → l≈0.05  (full ceiling)
+            #     p = epoch / 30
+            #     l = k*p
+
+            p = epoch/15
+            l = k*p**2
 
             logits_2,loss_2,recon_loss,total_loss=Adv.Adversary_Pass2(i,l)
 
@@ -165,6 +168,8 @@ if __name__=="__main__":
     # plt.show()
 
     plt.plot(x,Accuracy_all)
+    plt.xlabel("Epochs")
+    plt.xlabel("Accuracy")
     plt.show()
 
     plt.plot(x,total_loss_full)
