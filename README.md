@@ -1,3 +1,6 @@
+Unsupervised Neural Literary Style Transfer via
+Adversarial Representation Learning
+
 We present a system for literary style transfer in the Bangla language, targeting five
 canonical Bengali authors: Bibhutibhushan Bandopadhyay, Rabindranath Tagore,
 Sarat Chandra Chattopadhyay, Satyajit Ray, and Sunil Gangopadhay. Our model
