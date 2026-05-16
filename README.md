@@ -1,14 +1,3 @@
 ## **Unsupervised Neural Literary Style Transfer via Adversarial Representation Learning**
 
-We present a system for literary style transfer in the Bangla language, targeting five
-canonical Bengali authors: Bibhutibhushan Bandopadhyay, Rabindranath Tagore,
-Sarat Chandra Chattopadhyay, Satyajit Ray, and Sunil Gangopadhay. Our model
-uses a Bidirectional GRU encoder to produce a style-invariant sentence represen-
-tation, enforced via a Gradient Reversal Layer that confuses a multi-class author
-discriminator. A unidirectional GRU decoder, conditioned on a learnable author
-style embedding, then reconstructs the sentence in the target author’s voice. A
-custom corpus of approximately several thousand Bangla sentences is extracted
-from digitised literary PDFs using pdfplumber and Tesseract OCR. Adversarial
-training follows the Domain-Adversarial Neural Network (DANN) schedule with a
-warm-up phase of 30 epochs. The system is evaluated on reconstruction loss and
-discriminator accuracy, and supports interactive inference.
+We present a system for literary style transfer in the Bangla language, targeting five canonical Bengali authors: Bibhutibhushan Bandopadhyay, Rabindranath Tagore, Sarat Chandra Chattopadhyay, Satyajit Ray, and Sunil Gangopadhay. Our model uses a Bidirectional GRU encoder to produce a style-invariant sentence representation, enforced via a Gradient Reversal Layer that confuses a multi-class author discriminator. A unidirectional GRU decoder, conditioned on a learnable author style embedding, then reconstructs the sentence in the target author’s voice. A custom corpus of approximately several thousand Bangla sentences is extracted from digitised literary PDFs using pdfplumber and Tesseract OCR. Adversarial training follows the Domain-Adversarial Neural Network (DANN) schedule with a warm-up phase of 30 epochs. The system is evaluated on reconstruction loss and discriminator accuracy, and supports interactive inference.
