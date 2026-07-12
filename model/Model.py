@@ -70,7 +70,7 @@ if __name__=="__main__":
     Accuracy_epoch=0
     Accuracy_all=[]
 
-    max_epoch=300
+    max_epoch=400
 
     best_loss=float('inf')
 
