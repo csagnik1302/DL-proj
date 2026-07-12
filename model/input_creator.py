@@ -9,13 +9,18 @@ tokens=vocab_creator.tokenize(dataset["text"])
 
 
 def encoded_tokens(tokens1):
-    enc = []
-    for i in tokens1:
-        temp = [vocab["<sos>"]]   # prepend <sos>
-        for j in i:
-            temp.append(vocab.get(j, vocab["<unk>"]))    # .get() gives the value allocated to the input key as output, with if it does not exist a failsafe output sa well, preventing errors
-        enc.append(temp)
-    return enc
+    return [[vocab["<sos>"], *token_ids] for token_ids in tokens1]
+
+
+# Word-level encoding (legacy fallback; keep commented for future experiments)
+# def encoded_tokens(tokens1):
+#     enc = []
+#     for sentence in tokens1:
+#         token_ids = [vocab["<sos>"]]
+#         for token in sentence:
+#             token_ids.append(vocab.get(token, vocab["<unk>"]))
+#         enc.append(token_ids)
+#     return enc
 
 
 def padding(tokens2):                       #for padding

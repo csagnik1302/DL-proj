@@ -17,6 +17,7 @@ pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 scikit-learn==1.8.0
 scipy==1.17.0
+sentencepiece
 six==1.17.0
 threadpoolctl==3.6.0
 tqdm==4.67.3

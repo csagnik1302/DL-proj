@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+import sentencepiece as spm
 
 # ────────────────────
 # CONFIGURATION  
 # ────────────────────
 WEIGHTS_PATH = r"weights.pth"
 VOCAB_PATH   = r"vocab.pth"
+TOKENIZER_MODEL_PATH = r"bangla_sentencepiece.model"
 
 
 # ────────────────
@@ -31,7 +33,10 @@ print(f"Using device: {device}")
 # Load vocab
 # ─────────────────────────────────────────────
 vocab: dict = torch.load(VOCAB_PATH, map_location="cpu")
-idx_to_word = {idx: word for word, idx in vocab.items()}
+tokenizer = spm.SentencePieceProcessor(model_file=TOKENIZER_MODEL_PATH)
+
+if tokenizer.get_piece_size() != len(vocab):
+    raise ValueError("Tokenizer and vocabulary sizes differ. Use the SentencePiece model saved with this checkpoint.")
 
 
 # ─────────────────────────────────────────────
@@ -96,13 +101,18 @@ emb_author.eval()
 # ─────────────────────────────────────────────
 def encode_sentence(sentence: str) -> torch.Tensor:
     """
-    Splits sentence into words, prepends <sos>, appends <eos>, maps each word to its vocab
-    index (<unk> for out-of-vocabulary words), returns shape (1, seq_len).
+    Encodes a sentence with the training SentencePiece model and adds sequence markers.
     """
-    words = ["<sos>"] + sentence.strip().split() + ["<eos>"]
-    indices = [vocab.get(w, vocab["<unk>"]) for w in words]
+    indices = [tokenizer.bos_id(), *tokenizer.encode(sentence.strip(), out_type=int), tokenizer.eos_id()]
     # shape: (1, seq_len)  — batch dimension added so it matches model expectations
     return torch.tensor([indices], dtype=torch.long).to(device)
+
+
+# Word-level encoding (legacy fallback; keep commented for future experiments)
+# def encode_sentence(sentence: str) -> torch.Tensor:
+#     words = ["<sos>"] + sentence.strip().split() + ["<eos>"]
+#     indices = [vocab.get(word, vocab["<unk>"]) for word in words]
+#     return torch.tensor([indices], dtype=torch.long).to(device)
 
 
 # ─────────────────────────────────────────────
@@ -141,7 +151,7 @@ def generate(hidden_both: torch.Tensor,
              max_len: int = 30,
              temperature: float = 0.7,        # can be tuned
              repetition_penalty: float = 1.5  # can be tuned
-             ) -> list[str]:
+             ) -> str:
 
     i_auth = torch.tensor([author_idx], dtype=torch.long).to(device)
     author_vec = emb_author(i_auth)
@@ -149,8 +159,7 @@ def generate(hidden_both: torch.Tensor,
     input_token = torch.tensor([[sos]], dtype=torch.long).to(device)
 
     hidden = None
-    generated = []
-    generated_indices = []   # track token ids for repetition penalty
+    generated_indices = []
 
 
     context = hidden_both.unsqueeze(1)
@@ -190,13 +199,11 @@ def generate(hidden_both: torch.Tensor,
             if next_idx == vocab["<eos>"]:
                 break
 
-            word = idx_to_word.get(next_idx, "<unk>")
-            generated.append(word)
             generated_indices.append(next_idx)
 
             input_token = torch.tensor([[next_idx]], dtype=torch.long).to(device)
 
-    return generated
+    return tokenizer.decode(generated_indices)
 
 
 # ─────────────────────────────────────────────
@@ -230,8 +237,8 @@ def main():
         hidden_both = encode(token_ids)
 
         # ── Generate ─────────────────────────────────────
-        words = generate(hidden_both, author_idx, temperature=0.7, repetition_penalty=1.5)
-        output = " ".join(words) if words else "(no output — model may need more training)"
+        output = generate(hidden_both, author_idx, temperature=0.7, repetition_penalty=1.5)
+        output = output or "(no output — model may need more training)"
 
         print(f"\nGenerated ({author_input}):\n  {output}\n")
         print("-" * 55)
