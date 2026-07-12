@@ -1,7 +1,7 @@
 # Bangla Literary Style Transfer
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-Required-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.11.0%2Bcu130-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![NumPy](https://img.shields.io/badge/NumPy-2.4.2-013243?logo=numpy&logoColor=white)](https://numpy.org/)
 [![pandas](https://img.shields.io/badge/pandas-3.0.0-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
 [![pdfplumber](https://img.shields.io/badge/pdfplumber-0.11.9-4B8BBE)](https://github.com/jsvine/pdfplumber)
