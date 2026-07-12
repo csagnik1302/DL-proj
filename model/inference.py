@@ -1,16 +1,16 @@
 import torch
 import torch.nn as nn
 
-# ─────────────────────────────────────────────
-# CONFIGURATION  ← edit these two lines
-# ─────────────────────────────────────────────
+# ────────────────────
+# CONFIGURATION  
+# ────────────────────
 WEIGHTS_PATH = r"weights.pth"
 VOCAB_PATH   = r"vocab.pth"
 
 
-# ─────────────────────────────────────────────
-# Author name  →  class index  (must match training)
-# ─────────────────────────────────────────────
+# ────────────────
+# Author name 
+# ────────────────
 AUTHOR_MAP = {
     "bibhutibhushan bandopadhyay": 0,
     "rabindranath tagore":         1,
@@ -31,12 +31,10 @@ print(f"Using device: {device}")
 # Load vocab
 # ─────────────────────────────────────────────
 vocab: dict = torch.load(VOCAB_PATH, map_location="cpu")
-# Reverse vocab: index → word  (for decoding generated token IDs back to text)
 idx_to_word = {idx: word for word, idx in vocab.items()}
 
 
 # ─────────────────────────────────────────────
-# Rebuild model architecture
 # IMPORTANT: these hyperparameters must be identical to Adversary_Passes.py
 # ─────────────────────────────────────────────
 embed = nn.Embedding(
@@ -141,8 +139,8 @@ def encode(token_ids: torch.Tensor) -> torch.Tensor:
 def generate(hidden_both: torch.Tensor,
              author_idx: int,
              max_len: int = 30,
-             temperature: float = 0.7,        # add this
-             repetition_penalty: float = 1.5  # add this
+             temperature: float = 0.7,        # can be tuned
+             repetition_penalty: float = 1.5  # can be tuned
              ) -> list[str]:
 
     i_auth = torch.tensor([author_idx], dtype=torch.long).to(device)
