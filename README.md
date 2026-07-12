@@ -1,5 +1,12 @@
 # Bangla Literary Style Transfer
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-Required-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![NumPy](https://img.shields.io/badge/NumPy-2.4.2-013243?logo=numpy&logoColor=white)](https://numpy.org/)
+[![pandas](https://img.shields.io/badge/pandas-3.0.0-150458?logo=pandas&logoColor=white)](https://pandas.pydata.org/)
+[![pdfplumber](https://img.shields.io/badge/pdfplumber-0.11.9-4B8BBE)](https://github.com/jsvine/pdfplumber)
+[![pytesseract](https://img.shields.io/badge/pytesseract-0.3.13-5C2D91)](https://github.com/madmaze/pytesseract)
+
 An experimental deep-learning system for transferring Bangla sentences between the literary styles of five canonical Bengali authors. The project learns a style-invariant content representation and uses a target-author embedding to generate a rewritten sentence.
 
 > **Research prototype:** Generated text is probabilistic and may contain factual, grammatical, or stylistic errors. It should not be presented as authentic writing by an author.
