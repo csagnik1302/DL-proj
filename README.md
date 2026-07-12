@@ -17,6 +17,7 @@ An experimental deep-learning system for transferring Bangla sentences between t
 - Builds a sentence-level Bangla corpus from literary PDFs, using `pdfplumber` with a Tesseract OCR fallback.
 - Filters common OCR noise and reports corpus-quality statistics.
 - Uses adversarial representation learning to separate sentence content from author identity.
+- Uses SentencePiece subword tokenization consistently across training and inference in the current experiment.
 - Includes interactive inference with temperature sampling, top-k filtering, and a repetition penalty.
 
 ## Model Overview
@@ -30,6 +31,38 @@ The architecture follows a domain-adversarial style-transfer approach:
 5. A unidirectional GRU decoder receives the encoded content, its previous token, and a learned target-author embedding to generate the output sentence.
 
 The training objective combines reconstruction loss with an adversarial author-classification loss. The adversarial signal is introduced after a warm-up period to preserve reconstruction quality early in training.
+
+### Tokenization Evolution
+
+The initial model used word-level tokenization, with words occurring five or fewer times mapped to `<unk>`. The current update replaces this with [SentencePiece](https://github.com/google/sentencepiece) subword tokenization across both training and inference, eliminating training/inference vocabulary mismatch and improving coverage of rare or morphologically complex Bangla words.
+
+## Dataset
+
+The released corpus contains **18,779 sentence-author pairs** from five Bengali authors. Sentences have at least five words and pass Bangla-specific OCR and linguistic-quality filters.
+
+| Author | Sentences | Mean OCR noise score |
+| --- | ---: | ---: |
+| Bibhutibhushan Bandopadhyay | 4,500 | 0.116 |
+| Rabindranath Tagore | 3,279 | 0.064 |
+| Sarat Chandra Chattopadhyay | 3,500 | 0.099 |
+| Satyajit Ray | 4,000 | 0.095 |
+| Sunil Gangopadhay | 3,500 | 0.084 |
+
+The dataset is publicly available as [`sentences.csv`](https://github.com/csagnik1302/DL-proj/blob/main/Dataset_Creator/bangla_corpus/sentences.csv). It is a sentence-level CSV with `author` and `text` columns.
+
+## Reported Training Results
+
+### Word-Level Baseline
+
+In the original 200-epoch word-level experiment, discriminator accuracy rose to approximately **65%** during the first 30 warm-up epochs, then declined toward the **20% random-chance baseline** after gradient reversal was enabled. This behaviour indicates that the encoder learned to reduce author-identifying information in its latent representation.
+
+The reported baseline uses Adam with a learning rate of `1e-4` for both model components, a batch size of 64, a 30-epoch warm-up, and a maximum gradient-reversal strength of `0.0001`. Model selection uses the checkpoint with the lowest reconstruction loss.
+
+### SentencePiece Update
+
+The subword experiment was trained for 300 epochs. Its discriminator accuracy peaked at approximately **47%**, below the word-level baseline, and did not return to the **20%** chance-level floor. This indicates that author-style information remains in the GRU latent representation and the adversarial schedule requires further tuning for the new vocabulary.
+
+Qualitative evaluation nevertheless found that SentencePiece captures local Bangla subword dependencies better than the word-level baseline. Output fluency is marginally improved, though repetition still occurs and the current temperature and repetition-penalty settings require tuning for subword generation.
 
 ## Repository Structure
 
@@ -63,7 +96,7 @@ Create and activate a virtual environment, then install the listed corpus depend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r Dataset_Creator\requirements.txt
-pip install torch matplotlib
+pip install torch matplotlib sentencepiece
 ```
 
 Set the executable paths near the top of `Dataset_Creator/bangla_corpus_builder.py` (or `Dataset_Creator/corpus_validator.py`) to match your Tesseract and Poppler installations. The defaults are Windows paths and will need changing on another machine.
@@ -147,7 +180,8 @@ Only use source texts that you are legally permitted to process. The project is 
 
 ## Limitations
 
-- The model uses word-level tokenisation, so rare and out-of-vocabulary Bangla words map to `<unk>`.
+- The SentencePiece model improves local Bangla word dependencies, but its discriminator has not yet achieved the style-invariant chance-level accuracy reached by the word-level baseline.
 - OCR quality and corpus size strongly affect the output.
+- Generated output can still repeat tokens; decoding settings need further tuning for the subword vocabulary.
 - The scripts are research-oriented and retain a few local configuration paths that must be adapted before use.
 - The repository does not currently include a licence file; treat reuse as unlicensed until one is added by the project owner.
